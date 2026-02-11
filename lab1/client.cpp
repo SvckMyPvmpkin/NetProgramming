@@ -1,5 +1,47 @@
+// #include <iostream>
+// #include <cstring>
+// #include <sys/socket.h>
+// #include <netinet/in.h>
+// #include <arpa/inet.h>
+// #include <unistd.h>
+
+// int main(int argc, char* argv[]) {
+//     if (argc < 2) {
+//         std::cerr << "Использование: " << argv[0] << " <порт_сервера>" << std::endl;
+//         return 1;
+//     }
+
+//     int sid = socket(AF_INET, SOCK_DGRAM, 0);
+//     int port = std::atoi(argv[1]);
+
+//     const uint32_t i = 2;
+    
+//     sockaddr_in servAddr{};
+//     servAddr.sin_family = AF_INET;
+//     servAddr.sin_port = htons(port);
+//     servAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+//     std::cout << "CLIENT: Начинаю отправку числа " << i << " на localhost:" << port << std::endl;
+
+//     for (int step = 1; step <= 10; ++step) {
+//         uint32_t msg = htonl(i);
+//         sendto(sid, &msg, sizeof(msg), 0, (struct sockaddr*)&servAddr, sizeof(servAddr));
+
+//         uint32_t response;
+//         socklen_t len = sizeof(servAddr);
+//         if (recvfrom(sid, &response, sizeof(response), 0, (struct sockaddr*)&servAddr, &len) > 0) {
+//             std::cout << "Сервер вернул преобразованное число: " << ntohl(response) << std::endl;
+//         }
+
+//         sleep(i);
+//     }
+
+//     std::cout << "Работа завершена." << std::endl;
+//     close(sid);
+//     return 0;
+// }
+
 #include <iostream>
-#include <cstdlib>
 #include <cstring>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -8,66 +50,49 @@
 #include <unistd.h>
 
 int main(int argc, char* argv[]) {
-    if (argc < 4) {
-        std::cerr << "Использование: " << argv[0] << " <IP сервера> <Порт> <Число i>" << std::endl;
+    if (argc < 2) {
+        std::cerr << "Использование: " << argv[0] << " <порт>" << std::endl;
         return 1;
     }
 
-    const char* serverIp = argv[1];
-    int serverPort = std::atoi(argv[2]);
-    int i = std::atoi(argv[3]);
+    int port = std::atoi(argv[1]);
+    const uint32_t i = 2;
 
-    int sid;
-    sockaddr_in servAddr{}, clientAddr{};
-    hostent *hp;
+    int sid = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sid < 0) { perror("Ошибка сокета"); return 1; }
 
-    if ((sid = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-        std::perror("Ошибка создания сокета");
-        return 1;
-    }
-
-    servAddr.sin_family = AF_INET;
-    hp = gethostbyname(serverIp);
+    char host[256];
+    gethostname(host, sizeof(host));
+    struct hostent* hp = gethostbyname(host);
+    
     if (hp == nullptr) {
-        std::cerr << "Ошибка: хост не найден" << std::endl;
+        std::cerr << "Не удалось определить IP автоматически" << std::endl;
         return 1;
     }
+
+    sockaddr_in servAddr{};
+    servAddr.sin_family = AF_INET;
+    servAddr.sin_port = htons(port);
     std::memcpy(&servAddr.sin_addr.s_addr, hp->h_addr, hp->h_length);
-    servAddr.sin_port = htons(serverPort);
 
-    clientAddr.sin_family = AF_INET;
-    clientAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    clientAddr.sin_port = 0;
-    bind(sid, reinterpret_cast<sockaddr*>(&clientAddr), sizeof(clientAddr));
-
-    std::cout << "=== КЛИЕНТ ЗАПУЩЕН ===" << std::endl;
-    std::cout << "Будет отправлено число " << i << " с задержкой " << i << " сек." << std::endl;
+    std::cout << "--- КЛИЕНТ ЗАПУЩЕН ---" << std::endl;
+    std::cout << "Автоматически определенный IP сервера: " << inet_ntoa(servAddr.sin_addr) << std::endl;
+    std::cout << "Отправка числа " << i << " с задержкой " << i << " сек." << std::endl;
 
     for (int step = 1; step <= 10; ++step) {
-        uint32_t toSend = htonl(i);
+        uint32_t msg = htonl(i);
+        sendto(sid, &msg, sizeof(msg), 0, (struct sockaddr*)&servAddr, sizeof(servAddr));
 
-        if (sendto(sid, &toSend, sizeof(toSend), 0, 
-                   reinterpret_cast<sockaddr*>(&servAddr), sizeof(servAddr)) < 0) {
-            std::perror("Ошибка отправки");
-            break;
-        }
-
-        uint32_t received;
-        socklen_t servlen = sizeof(servAddr);
-        ssize_t mlen = recvfrom(sid, &received, sizeof(received), 0, 
-                                reinterpret_cast<sockaddr*>(&servAddr), &servlen);
-
-        if (mlen < 0) {
-            std::perror("Ошибка приема");
-        } else {
-            std::cout << "[" << step << "] Ответ от сервера (преобразованный): " 
-                      << ntohl(received) << std::endl;
+        uint32_t response;
+        socklen_t len = sizeof(servAddr);
+        if (recvfrom(sid, &response, sizeof(response), 0, (struct sockaddr*)&servAddr, &len) > 0) {
+            std::cout << "[" << step << "] Ответ сервера: " << ntohl(response) << std::endl;
         }
 
         sleep(i);
     }
 
-    std::cout << "Пересылка завершена. Выход." << std::endl;
+    std::cout << "Готово." << std::endl;
     close(sid);
     return 0;
 }
